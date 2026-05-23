@@ -135,7 +135,7 @@ function modifiersFromEvent(event: KeyboardEvent<HTMLDivElement>) {
 }
 
 function isModifierOnly(key: string) {
-  return key === 'Control' || key === 'Alt' || key === 'Shift' || key === 'Meta';
+  return key === 'Control' || key === 'Alt' || key === 'AltGraph' || key === 'Shift' || key === 'Meta';
 }
 
 function primaryFromEvent(event: KeyboardEvent<HTMLDivElement>) {
@@ -155,7 +155,7 @@ function primaryFromEvent(event: KeyboardEvent<HTMLDivElement>) {
 
 function modifierPrimaryFromCode(code: string, key: string) {
   if (key === 'Control') return code === 'ControlRight' ? 'ControlRight' : 'ControlLeft';
-  if (key === 'Alt') return code === 'AltRight' ? 'AltRight' : 'AltLeft';
+  if (key === 'Alt' || key === 'AltGraph') return code === 'AltRight' ? 'AltRight' : 'AltLeft';
   if (key === 'Shift') return code === 'ShiftRight' ? 'ShiftRight' : 'ShiftLeft';
   if (key === 'Meta') return code === 'MetaRight' ? 'MetaRight' : 'MetaLeft';
   return '';

@@ -153,6 +153,9 @@ impl Drop for HotkeyMonitor {
 }
 
 pub fn validate_hotkey_binding(raw: &str) -> Result<(), String> {
+    if parse_modifier_only_binding(raw).is_some() {
+        return Ok(());
+    }
     parse_hotkey(raw).map(|_| ())
 }
 
