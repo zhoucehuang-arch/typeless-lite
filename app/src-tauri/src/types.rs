@@ -75,8 +75,9 @@ pub struct Preferences {
     pub sherpa_keep_loaded_secs: u32,
     pub llm_base_url: String,
     pub llm_model: String,
-    pub llm_temperature: f32,
+    #[serde(default = "default_restore_clipboard_after_paste")]
     pub restore_clipboard_after_paste: bool,
+    #[serde(default = "default_history_max_entries")]
     pub history_max_entries: u32,
 }
 
@@ -87,6 +88,14 @@ pub enum OutputLanguage {
     Auto,
     ZhCn,
     En,
+}
+
+fn default_restore_clipboard_after_paste() -> bool {
+    true
+}
+
+fn default_history_max_entries() -> u32 {
+    200
 }
 
 impl Default for Preferences {
@@ -105,7 +114,6 @@ impl Default for Preferences {
             sherpa_keep_loaded_secs: 300,
             llm_base_url: "https://api.openai.com/v1".into(),
             llm_model: "gpt-4o-mini".into(),
-            llm_temperature: 0.3,
             restore_clipboard_after_paste: true,
             history_max_entries: 200,
         }
@@ -227,6 +235,25 @@ pub struct SherpaModelInfo {
     pub display_name: String,
     pub languages: Vec<String>,
     pub cached: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SherpaModelFileStatus {
+    pub name: String,
+    pub present: bool,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SherpaDefaultModelStatus {
+    pub alias: String,
+    pub display_name: String,
+    pub cached: bool,
+    pub directory: String,
+    pub files: Vec<SherpaModelFileStatus>,
+    pub downloaded_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]

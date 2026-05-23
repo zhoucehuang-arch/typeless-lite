@@ -1,15 +1,25 @@
-import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Cloud, Download, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import {
   getCredentials,
+  listLlmModels,
   listMicrophones,
+  onSherpaDownloadProgress,
   setLlmApiKey,
   setSettings,
-  sherpaCatalog,
-  sherpaModelDir,
+  sherpaDefaultModelStatus,
+  sherpaPrepareDefaultModel,
+  validateLlmModel,
 } from '../lib/ipc';
-import type { CredentialsStatus, MicrophoneDevice, Preferences, SherpaModelInfo } from '../lib/types';
+import type {
+  CredentialsStatus,
+  MicrophoneDevice,
+  Preferences,
+  SherpaDefaultModelStatus,
+  SherpaDownloadProgress,
+} from '../lib/types';
 import { IconButton } from './IconButton';
+import { ShortcutRecorder } from './ShortcutRecorder';
 
 interface SettingsModalProps {
   prefs: Preferences;
@@ -22,8 +32,12 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
   const [apiKey, setApiKey] = useState('');
   const [credentials, setCredentials] = useState<CredentialsStatus | null>(null);
   const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([]);
-  const [models, setModels] = useState<SherpaModelInfo[]>([]);
-  const [modelDir, setModelDir] = useState('');
+  const [asrStatus, setAsrStatus] = useState<SherpaDefaultModelStatus | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<SherpaDownloadProgress | null>(null);
+  const [llmModels, setLlmModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [checkingModel, setCheckingModel] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
 
   useEffect(() => {
@@ -33,22 +47,84 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
   useEffect(() => {
     void getCredentials().then(setCredentials).catch(() => setCredentials(null));
     void listMicrophones().then(setMicrophones).catch(() => setMicrophones([]));
-    void sherpaCatalog().then(setModels).catch(() => setModels([]));
+    void sherpaDefaultModelStatus().then(setAsrStatus).catch(error => setStatus(String(error)));
+    const unlisten = onSherpaDownloadProgress(payload => {
+      setDownloadProgress(payload);
+      if (payload.done) void sherpaDefaultModelStatus().then(setAsrStatus);
+    });
+    return () => {
+      void unlisten.then(dispose => dispose());
+    };
   }, []);
 
-  useEffect(() => {
-    void sherpaModelDir(draft.sherpaModel).then(setModelDir).catch(error => setModelDir(String(error)));
-  }, [draft.sherpaModel]);
+  const progressLabel = useMemo(() => {
+    if (!downloadProgress || downloadProgress.totalBytes <= 0) return '';
+    const percent = Math.round((downloadProgress.downloadedBytes / downloadProgress.totalBytes) * 100);
+    return `${percent}% · ${formatBytes(downloadProgress.downloadedBytes)} / ${formatBytes(downloadProgress.totalBytes)}`;
+  }, [downloadProgress]);
 
   const save = async () => {
-    await setSettings(draft);
-    if (apiKey.trim()) {
-      await setLlmApiKey(apiKey.trim());
-      setApiKey('');
+    setSaving(true);
+    setStatus('');
+    try {
+      if (apiKey.trim()) {
+        await setLlmApiKey(apiKey.trim());
+        setApiKey('');
+      }
+      const normalized = {
+        ...draft,
+        asrProvider: 'sherpa-onnx-local',
+        sherpaModel: 'sense-voice-small-zh',
+        sherpaLanguageHint: draft.sherpaLanguageHint || 'zh',
+      };
+      await setSettings(normalized);
+      onSaved(normalized);
+      setStatus('已保存');
+      void getCredentials().then(setCredentials);
+    } catch (err) {
+      setStatus(String(err));
+    } finally {
+      setSaving(false);
     }
-    onSaved(draft);
-    setStatus('已保存');
-    window.setTimeout(() => setStatus(''), 1200);
+  };
+
+  const prepareAsr = async () => {
+    setStatus('');
+    setDownloadProgress(null);
+    try {
+      const next = await sherpaPrepareDefaultModel();
+      setAsrStatus(next);
+      setStatus(next.cached ? '本地 ASR 模型已缓存' : '模型准备完成');
+    } catch (err) {
+      setStatus(String(err));
+    }
+  };
+
+  const fetchModels = async () => {
+    setLoadingModels(true);
+    setStatus('');
+    try {
+      const models = await listLlmModels(draft.llmBaseUrl, apiKey || null);
+      setLlmModels(models);
+      setStatus(models.length > 0 ? `已获取 ${models.length} 个模型` : '没有返回可用模型');
+    } catch (err) {
+      setStatus(String(err));
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  const checkModel = async () => {
+    setCheckingModel(true);
+    setStatus('');
+    try {
+      const result = await validateLlmModel(draft.llmBaseUrl, draft.llmModel, apiKey || null);
+      setStatus(result.message);
+    } catch (err) {
+      setStatus(String(err));
+    } finally {
+      setCheckingModel(false);
+    }
   };
 
   return (
@@ -57,7 +133,7 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
         <header>
           <div>
             <h2>设置</h2>
-            <p>调整听写、模型、润色和本地数据。</p>
+            <p>保持 OpenLess 式的轻量配置，只保留听写、模型和数据选项。</p>
           </div>
           <IconButton title="关闭" onClick={onClose}>
             <X size={16} />
@@ -66,10 +142,13 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
 
         <div className="settings-grid">
           <section className="settings-section">
-            <h3>通用</h3>
+            <div className="settings-section-title">
+              <h3>听写</h3>
+              <span>{draft.hotkeyMode === 'toggle' ? '点击切换' : '按住说话'}</span>
+            </div>
             <label>
               快捷键
-              <input value={draft.hotkey} onChange={event => setDraft({ ...draft, hotkey: event.target.value })} />
+              <ShortcutRecorder value={draft.hotkey} onChange={hotkey => setDraft({ ...draft, hotkey })} />
             </label>
             <label>
               录音模式
@@ -78,18 +157,6 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
                 <option value="toggle">点击切换</option>
               </select>
             </label>
-            <label className="check-row">
-              <input type="checkbox" checked={draft.showCapsule} onChange={event => setDraft({ ...draft, showCapsule: event.target.checked })} />
-              显示状态胶囊
-            </label>
-            <label className="check-row">
-              <input type="checkbox" checked={draft.restoreClipboardAfterPaste} onChange={event => setDraft({ ...draft, restoreClipboardAfterPaste: event.target.checked })} />
-              粘贴后恢复剪贴板
-            </label>
-          </section>
-
-          <section className="settings-section">
-            <h3>音频与 ASR</h3>
             <label>
               麦克风
               <select value={draft.microphoneDeviceName ?? ''} onChange={event => setDraft({ ...draft, microphoneDeviceName: event.target.value || null })}>
@@ -99,47 +166,87 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
                 ))}
               </select>
             </label>
-            <label>
-              本地模型
-              <select value={draft.sherpaModel} onChange={event => setDraft({ ...draft, sherpaModel: event.target.value })}>
-                {models.map(model => (
-                  <option key={model.alias} value={model.alias}>{model.displayName}{model.cached ? '' : '（未缓存）'}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              语言 hint
-              <input value={draft.sherpaLanguageHint ?? ''} onChange={event => setDraft({ ...draft, sherpaLanguageHint: event.target.value || null })} />
-            </label>
-            <div className="path-box">{modelDir || '模型目录未就绪'}</div>
+            <div className="toggle-stack">
+              <label className="check-row">
+                <input type="checkbox" checked={draft.showCapsule} onChange={event => setDraft({ ...draft, showCapsule: event.target.checked })} />
+                显示状态胶囊
+              </label>
+              <label className="check-row">
+                <input type="checkbox" checked={draft.restoreClipboardAfterPaste} onChange={event => setDraft({ ...draft, restoreClipboardAfterPaste: event.target.checked })} />
+                粘贴后恢复剪贴板
+              </label>
+            </div>
           </section>
 
           <section className="settings-section">
-            <h3>LLM</h3>
-            <label>
-              Base URL
-              <input value={draft.llmBaseUrl} onChange={event => setDraft({ ...draft, llmBaseUrl: event.target.value })} />
-            </label>
-            <label>
-              模型
-              <input value={draft.llmModel} onChange={event => setDraft({ ...draft, llmModel: event.target.value })} />
-            </label>
-            <label>
-              Temperature
-              <input type="number" min={0} max={2} step={0.1} value={draft.llmTemperature} onChange={event => setDraft({ ...draft, llmTemperature: Number(event.target.value) })} />
-            </label>
-            <label>
-              API Key
-              <input type="password" value={apiKey} placeholder={credentials?.llmConfigured ? '已配置，填写可覆盖' : '未配置'} onChange={event => setApiKey(event.target.value)} />
-            </label>
+            <div className="settings-section-title">
+              <h3>本地 ASR</h3>
+              <span>{asrStatus?.cached ? '已缓存' : 'OpenLess 默认'}</span>
+            </div>
+            <div className={asrStatus?.cached ? 'model-status ready' : 'model-status'}>
+              <div>
+                <strong>{asrStatus?.displayName ?? 'SenseVoice Small'}</strong>
+                <span>sherpa-onnx-local · sense-voice-small-zh</span>
+              </div>
+              {asrStatus?.cached ? <CheckCircle2 size={18} /> : <Download size={18} />}
+            </div>
+            <button type="button" className="tool-button" onClick={() => void prepareAsr()}>
+              <Download size={15} />
+              {asrStatus?.cached ? '重新检查缓存' : '缓存默认模型'}
+            </button>
+            {downloadProgress && !downloadProgress.done && (
+              <div className="progress-line">
+                <span style={{ width: downloadProgress.totalBytes > 0 ? `${Math.min(100, (downloadProgress.downloadedBytes / downloadProgress.totalBytes) * 100)}%` : '20%' }} />
+              </div>
+            )}
+            <div className="hint-line">{progressLabel || '模型选择已收起到后续高级设置；当前固定使用 OpenLess 同款默认模型。'}</div>
+            <div className="path-box">{asrStatus?.directory ?? '模型目录未就绪'}</div>
+          </section>
+
+          <section className="settings-section wide">
+            <div className="settings-section-title">
+              <h3>LLM</h3>
+              <span>{credentials?.llmConfigured ? 'API Key 已保存' : '需要 API Key'}</span>
+            </div>
+            <div className="llm-grid">
+              <label>
+                Base URL
+                <input value={draft.llmBaseUrl} onChange={event => setDraft({ ...draft, llmBaseUrl: event.target.value })} />
+              </label>
+              <label>
+                API Key
+                <input type="password" value={apiKey} placeholder={credentials?.llmConfigured ? '已配置，填写可覆盖' : '未配置'} onChange={event => setApiKey(event.target.value)} />
+              </label>
+              <label>
+                模型
+                {llmModels.length > 0 ? (
+                  <select value={draft.llmModel} onChange={event => setDraft({ ...draft, llmModel: event.target.value })}>
+                    {llmModels.map(model => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={draft.llmModel} onChange={event => setDraft({ ...draft, llmModel: event.target.value })} />
+                )}
+              </label>
+              <div className="tool-row">
+                <button type="button" className="tool-button" disabled={loadingModels} onClick={() => void fetchModels()}>
+                  <RefreshCw size={15} className={loadingModels ? 'spin' : ''} />
+                  获取模型列表
+                </button>
+                <button type="button" className="tool-button" disabled={checkingModel} onClick={() => void checkModel()}>
+                  <ShieldCheck size={15} />
+                  检验模型可用
+                </button>
+              </div>
+            </div>
           </section>
 
           <section className="settings-section">
-            <h3>数据</h3>
-            <label>
-              历史上限
-              <input type="number" min={5} max={200} value={draft.historyMaxEntries} onChange={event => setDraft({ ...draft, historyMaxEntries: Number(event.target.value) })} />
-            </label>
+            <div className="settings-section-title">
+              <h3>输出</h3>
+              <span>文本整理</span>
+            </div>
             <label>
               输出语言
               <select value={draft.outputLanguage} onChange={event => setDraft({ ...draft, outputLanguage: event.target.value as Preferences['outputLanguage'] })}>
@@ -148,14 +255,44 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
                 <option value="en">英文</option>
               </select>
             </label>
+            <label>
+              历史上限
+              <input type="number" min={5} max={200} value={draft.historyMaxEntries} onChange={event => setDraft({ ...draft, historyMaxEntries: Number(event.target.value) })} />
+            </label>
+          </section>
+
+          <section className="settings-section">
+            <div className="settings-section-title">
+              <h3>运行</h3>
+              <span>轻量模式</span>
+            </div>
+            <div className="model-status ready">
+              <div>
+                <strong>本地 ASR + API LLM</strong>
+                <span>去掉温度、复杂模型选择和额外功能。</span>
+              </div>
+              <Cloud size={18} />
+            </div>
           </section>
         </div>
 
         <footer>
           <span>{status}</span>
-          <button className="primary" onClick={() => void save()}>保存设置</button>
+          <button className="primary" disabled={saving} onClick={() => void save()}>{saving ? '保存中' : '保存设置'}</button>
         </footer>
       </section>
     </div>
   );
+}
+
+function formatBytes(bytes: number) {
+  if (bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }

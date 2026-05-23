@@ -106,6 +106,17 @@ impl Coordinator {
         self.install_hotkey()
     }
 
+    pub fn set_shortcut_recording_active(self: &Arc<Self>, active: bool) -> Result<(), String> {
+        if active {
+            self.hotkey_monitor.lock().take();
+            Ok(())
+        } else if self.hotkey_monitor.lock().is_none() {
+            self.install_hotkey()
+        } else {
+            Ok(())
+        }
+    }
+
     async fn handle_hotkey_event(self: Arc<Self>, event: HotkeyEvent) {
         let prefs = self.prefs.get();
         match (prefs.hotkey_mode, event) {

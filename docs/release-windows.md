@@ -7,8 +7,8 @@
 推送版本 tag：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 GitHub Actions 会运行 `.github/workflows/release-windows.yml`，在 `windows-latest` 上执行 Tauri build，并把 NSIS 安装包上传到对应 GitHub Release。

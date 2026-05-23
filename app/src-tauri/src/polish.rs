@@ -19,7 +19,6 @@ pub async fn polish_text(
     let url = chat_completions_url(&prefs.llm_base_url);
     let body = json!({
         "model": prefs.llm_model,
-        "temperature": prefs.llm_temperature,
         "messages": [
             { "role": "system", "content": system },
             { "role": "user", "content": user }

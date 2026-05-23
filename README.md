@@ -31,8 +31,8 @@ cargo check --manifest-path app/src-tauri/Cargo.toml
 自动发布到 GitHub Release：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 也可以在 Windows 本地构建安装包：

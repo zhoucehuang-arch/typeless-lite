@@ -130,6 +130,10 @@ impl Drop for HotkeyMonitor {
     }
 }
 
+pub fn validate_hotkey_binding(raw: &str) -> Result<(), String> {
+    parse_hotkey(raw).map(|_| ())
+}
+
 fn parse_hotkey(raw: &str) -> Result<HotKey, String> {
     let parts: Vec<String> = raw
         .split('+')

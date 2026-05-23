@@ -17,7 +17,6 @@ export interface Preferences {
   sherpaKeepLoadedSecs: number;
   llmBaseUrl: string;
   llmModel: string;
-  llmTemperature: number;
   restoreClipboardAfterPaste: boolean;
   historyMaxEntries: number;
 }
@@ -74,6 +73,35 @@ export interface SherpaModelInfo {
   displayName: string;
   languages: string[];
   cached: boolean;
+}
+
+export interface SherpaModelFileStatus {
+  name: string;
+  present: boolean;
+  bytes: number;
+}
+
+export interface SherpaDefaultModelStatus {
+  alias: string;
+  displayName: string;
+  cached: boolean;
+  directory: string;
+  files: SherpaModelFileStatus[];
+  downloadedBytes: number;
+}
+
+export interface SherpaDownloadProgress {
+  alias: string;
+  file: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  done: boolean;
+  error: string | null;
+}
+
+export interface LlmValidationResult {
+  ok: boolean;
+  message: string;
 }
 
 export interface CapsulePayload {

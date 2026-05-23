@@ -9,6 +9,9 @@ import type {
   DictionaryEntry,
   MicrophoneDevice,
   Preferences,
+  LlmValidationResult,
+  SherpaDefaultModelStatus,
+  SherpaDownloadProgress,
   SherpaModelInfo,
   StyleProfile,
 } from './types';
@@ -35,6 +38,22 @@ export function setLlmApiKey(apiKey: string) {
   return invoke<void>('set_llm_api_key', { apiKey });
 }
 
+export function validateHotkey(binding: string) {
+  return invoke<void>('validate_hotkey', { binding });
+}
+
+export function setShortcutRecordingActive(active: boolean) {
+  return invoke<void>('set_shortcut_recording_active', { active });
+}
+
+export function listLlmModels(baseUrl: string, apiKey?: string | null) {
+  return invoke<string[]>('list_llm_models', { baseUrl, apiKey: apiKey || null });
+}
+
+export function validateLlmModel(baseUrl: string, model: string, apiKey?: string | null) {
+  return invoke<LlmValidationResult>('validate_llm_model', { baseUrl, model, apiKey: apiKey || null });
+}
+
 export function startDictation() {
   return invoke<void>('start_dictation');
 }
@@ -57,6 +76,18 @@ export function sherpaCatalog() {
 
 export function sherpaModelDir(alias: string) {
   return invoke<string>('sherpa_model_dir', { alias });
+}
+
+export function sherpaDefaultModelStatus() {
+  return invoke<SherpaDefaultModelStatus>('sherpa_default_model_status');
+}
+
+export function sherpaPrepareDefaultModel() {
+  return invoke<SherpaDefaultModelStatus>('sherpa_prepare_default_model');
+}
+
+export function onSherpaDownloadProgress(handler: (payload: SherpaDownloadProgress) => void) {
+  return listen<SherpaDownloadProgress>('sherpa-download-progress', event => handler(event.payload));
 }
 
 export function listHistory() {

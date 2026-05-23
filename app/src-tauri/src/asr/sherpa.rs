@@ -1,14 +1,18 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use futures_util::StreamExt;
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
+use tokio::io::AsyncWriteExt;
 
 use crate::asr::RawTranscript;
 use crate::persistence;
 use crate::recorder::AudioConsumer;
-use crate::types::SherpaModelInfo;
+use crate::types::{SherpaDefaultModelStatus, SherpaModelFileStatus, SherpaModelInfo};
 
 #[cfg(target_os = "windows")]
 use sherpa_onnx::{
@@ -33,6 +37,7 @@ struct ModelSpec {
     family: ModelFamily,
     languages: &'static [&'static str],
     files: &'static [&'static str],
+    hf_repo: Option<&'static str>,
 }
 
 const MODELS: &[ModelSpec] = &[
@@ -42,6 +47,7 @@ const MODELS: &[ModelSpec] = &[
         family: ModelFamily::SenseVoice,
         languages: &["zh", "en", "ja", "ko", "yue"],
         files: &["model.int8.onnx", "tokens.txt"],
+        hf_repo: Some("csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"),
     },
     ModelSpec {
         alias: "paraformer-zh",
@@ -49,6 +55,7 @@ const MODELS: &[ModelSpec] = &[
         family: ModelFamily::Paraformer,
         languages: &["zh"],
         files: &["model.int8.onnx", "tokens.txt"],
+        hf_repo: None,
     },
     ModelSpec {
         alias: "whisper-small-multi",
@@ -56,8 +63,12 @@ const MODELS: &[ModelSpec] = &[
         family: ModelFamily::Whisper,
         languages: &["multi"],
         files: &["encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt"],
+        hf_repo: None,
     },
 ];
+
+const HF_BASE_URL: &str = "https://huggingface.co";
+static DEFAULT_DOWNLOAD_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub fn catalog() -> Vec<SherpaModelInfo> {
     MODELS
@@ -74,6 +85,87 @@ pub fn catalog() -> Vec<SherpaModelInfo> {
 pub fn model_dir(alias: &str) -> Result<PathBuf> {
     ensure_known(alias)?;
     Ok(persistence::sherpa_models_root()?.join(alias))
+}
+
+pub fn default_model_status() -> Result<SherpaDefaultModelStatus> {
+    let spec = spec_for(DEFAULT_MODEL_ALIAS)?;
+    let dir = model_dir(spec.alias)?;
+    let mut downloaded_bytes = 0u64;
+    let mut files = Vec::new();
+    for file in spec.files {
+        let path = dir.join(file);
+        let bytes = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        downloaded_bytes = downloaded_bytes.saturating_add(bytes);
+        files.push(SherpaModelFileStatus {
+            name: (*file).to_string(),
+            present: path.exists(),
+            bytes,
+        });
+    }
+    Ok(SherpaDefaultModelStatus {
+        alias: spec.alias.to_string(),
+        display_name: spec.display_name.to_string(),
+        cached: model_cached(spec.alias),
+        directory: dir.display().to_string(),
+        files,
+        downloaded_bytes,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadProgress {
+    alias: String,
+    file: String,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+    done: bool,
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HfTreeEntry {
+    #[serde(rename = "type")]
+    entry_type: String,
+    path: String,
+    #[serde(default)]
+    size: Option<u64>,
+    #[serde(default)]
+    lfs: Option<HfLfsInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HfLfsInfo {
+    #[serde(default)]
+    size: Option<u64>,
+}
+
+pub async fn prepare_default_model(app: AppHandle) -> Result<SherpaDefaultModelStatus> {
+    let spec = spec_for(DEFAULT_MODEL_ALIAS)?;
+    if model_cached(spec.alias) {
+        let status = default_model_status()?;
+        emit_download_progress(
+            &app,
+            spec.alias,
+            "",
+            status.downloaded_bytes,
+            status.downloaded_bytes,
+            true,
+            None,
+        );
+        return Ok(status);
+    }
+    if DEFAULT_DOWNLOAD_ACTIVE.swap(true, Ordering::SeqCst) {
+        return default_model_status();
+    }
+    let result = download_model_files(app.clone(), spec)
+        .await
+        .and_then(|_| default_model_status());
+    DEFAULT_DOWNLOAD_ACTIVE.store(false, Ordering::SeqCst);
+    if let Err(error) = &result {
+        emit_download_progress(&app, spec.alias, "", 0, 0, true, Some(error.to_string()));
+    }
+    result
 }
 
 pub fn model_cached(alias: &str) -> bool {
@@ -209,6 +301,153 @@ fn spec_for(alias: &str) -> Result<&'static ModelSpec> {
         .iter()
         .find(|model| model.alias == alias)
         .context("unknown sherpa model")
+}
+
+async fn download_model_files(app: AppHandle, spec: &'static ModelSpec) -> Result<()> {
+    let repo = spec
+        .hf_repo
+        .ok_or_else(|| anyhow::anyhow!("模型 {} 暂未配置自动下载源", spec.alias))?;
+    let dir = model_dir(spec.alias)?;
+    tokio::fs::create_dir_all(&dir).await?;
+    let client = reqwest::Client::builder()
+        .user_agent("TypelessLite/0.1")
+        .build()?;
+    let sizes = fetch_hf_file_sizes(&client, repo).await.unwrap_or_default();
+    let total_bytes = spec
+        .files
+        .iter()
+        .map(|file| {
+            sizes
+                .iter()
+                .find(|(path, _)| path.as_str() == *file)
+                .map(|(_, size)| *size)
+                .unwrap_or(0)
+        })
+        .sum::<u64>();
+    let mut completed_bytes = 0u64;
+    for file in spec.files {
+        let dest = dir.join(file);
+        if dest.exists() {
+            completed_bytes = completed_bytes
+                .saturating_add(std::fs::metadata(&dest).map(|meta| meta.len()).unwrap_or(0));
+            emit_download_progress(&app, spec.alias, file, completed_bytes, total_bytes, false, None);
+            continue;
+        }
+        let expected = sizes
+            .iter()
+            .find(|(path, _)| path.as_str() == *file)
+            .map(|(_, size)| *size)
+            .unwrap_or(0);
+        download_one_file(
+            &client,
+            repo,
+            file,
+            &dest,
+            &app,
+            spec.alias,
+            completed_bytes,
+            total_bytes,
+            expected,
+        )
+        .await?;
+        completed_bytes = completed_bytes
+            .saturating_add(std::fs::metadata(&dest).map(|meta| meta.len()).unwrap_or(expected));
+    }
+    emit_download_progress(&app, spec.alias, "", completed_bytes, total_bytes, true, None);
+    Ok(())
+}
+
+async fn fetch_hf_file_sizes(client: &reqwest::Client, repo: &str) -> Result<Vec<(String, u64)>> {
+    let url = format!("{HF_BASE_URL}/api/models/{repo}/tree/main");
+    let response = client.get(url).send().await?;
+    if !response.status().is_success() {
+        anyhow::bail!("HuggingFace 模型清单请求失败: HTTP {}", response.status().as_u16());
+    }
+    let entries: Vec<HfTreeEntry> = response.json().await?;
+    Ok(entries
+        .into_iter()
+        .filter(|entry| entry.entry_type == "file")
+        .filter_map(|entry| {
+            let size = entry.lfs.and_then(|lfs| lfs.size).or(entry.size).unwrap_or(0);
+            if size > 0 {
+                Some((entry.path, size))
+            } else {
+                None
+            }
+        })
+        .collect())
+}
+
+async fn download_one_file(
+    client: &reqwest::Client,
+    repo: &str,
+    file: &str,
+    dest: &Path,
+    app: &AppHandle,
+    alias: &str,
+    completed_before: u64,
+    total_bytes: u64,
+    expected_bytes: u64,
+) -> Result<()> {
+    let url = format!("{HF_BASE_URL}/{repo}/resolve/main/{file}");
+    let partial = dest.with_extension("partial");
+    let response = client.get(url).send().await?;
+    if !response.status().is_success() {
+        anyhow::bail!("下载 ASR 模型文件 {file} 失败: HTTP {}", response.status().as_u16());
+    }
+    let file_total = response.content_length().unwrap_or(expected_bytes);
+    let total = if total_bytes > 0 {
+        total_bytes
+    } else {
+        completed_before.saturating_add(file_total)
+    };
+    let mut stream = response.bytes_stream();
+    let mut output = tokio::fs::File::create(&partial).await?;
+    let mut downloaded = 0u64;
+    emit_download_progress(app, alias, file, completed_before, total, false, None);
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        output.write_all(&chunk).await?;
+        downloaded = downloaded.saturating_add(chunk.len() as u64);
+        emit_download_progress(
+            app,
+            alias,
+            file,
+            completed_before.saturating_add(downloaded),
+            total,
+            false,
+            None,
+        );
+    }
+    output.flush().await?;
+    drop(output);
+    tokio::fs::rename(&partial, dest).await.or_else(|err| {
+        let _ = std::fs::remove_file(&partial);
+        Err(err)
+    })?;
+    Ok(())
+}
+
+fn emit_download_progress(
+    app: &AppHandle,
+    alias: &str,
+    file: &str,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+    done: bool,
+    error: Option<String>,
+) {
+    let _ = app.emit(
+        "sherpa-download-progress",
+        DownloadProgress {
+            alias: alias.to_string(),
+            file: file.to_string(),
+            downloaded_bytes,
+            total_bytes,
+            done,
+            error,
+        },
+    );
 }
 
 #[cfg(target_os = "windows")]
