@@ -2,6 +2,7 @@ import { Mic, Square, Settings, SlidersHorizontal } from 'lucide-react';
 import type { CredentialsStatus, DictationSession, Preferences, StyleProfile } from '../lib/types';
 import { MODE_LABEL } from '../lib/types';
 import { formatDuration, formatTime } from '../lib/format';
+import { formatHotkey } from '../components/ShortcutRecorder';
 
 interface HomeProps {
   prefs: Preferences | null;
@@ -52,7 +53,7 @@ export function Home({
         <div>
           <span className="eyebrow">当前风格</span>
           <h2>{activeStyle?.name ?? '轻度润色'}</h2>
-          <p>{prefs?.hotkey ?? 'Ctrl+Space'} · {prefs?.hotkeyMode === 'toggle' ? '点击切换' : '按住说话'}</p>
+          <p>{formatHotkey(prefs?.hotkey ?? 'AltRight')} · {prefs?.hotkeyMode === 'toggle' ? '点击切换' : '按住说话'}</p>
         </div>
         <button className={recording ? 'record-button recording' : 'record-button'} disabled={busy && !recording} onClick={recording ? onStop : onStart}>
           {recording ? <Square size={22} /> : <Mic size={24} />}

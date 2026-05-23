@@ -101,7 +101,7 @@ fn default_history_max_entries() -> u32 {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            hotkey: "Ctrl+Space".into(),
+            hotkey: "AltRight".into(),
             hotkey_mode: HotkeyMode::Hold,
             launch_at_login: false,
             show_capsule: true,
