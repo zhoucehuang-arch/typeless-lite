@@ -159,3 +159,11 @@ export function resetBuiltinStyle(id: string) {
 export function onCapsule(handler: (payload: CapsulePayload) => void) {
   return listen<CapsulePayload>('capsule', event => handler(event.payload));
 }
+
+export function onHistoryChanged(handler: () => void) {
+  return listen<void>('history:changed', () => handler());
+}
+
+export function onDictionaryChanged(handler: () => void) {
+  return listen<void>('dictionary:changed', () => handler());
+}

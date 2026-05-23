@@ -112,6 +112,10 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
     try {
       const models = await listLlmModels(draft.llmBaseUrl, apiKey || null);
       setLlmModels(models);
+      if (models.length > 0 && !models.includes(draft.llmModel)) {
+        const preferred = pickPreferredModel(models);
+        setDraft(current => ({ ...current, llmModel: preferred }));
+      }
       setStatus(models.length > 0 ? `已获取 ${models.length} 个模型` : '没有返回可用模型');
     } catch (err) {
       setStatus(String(err));
@@ -341,6 +345,22 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
       </section>
     </div>
   );
+}
+
+function pickPreferredModel(models: string[]) {
+  const preferred = [
+    'gpt-4o-mini',
+    'gpt-4o',
+    'gpt-4.1-mini',
+    'gpt-4.1',
+    'deepseek-chat',
+  ];
+  const lower = new Map(models.map(model => [model.toLowerCase(), model]));
+  for (const model of preferred) {
+    const match = lower.get(model);
+    if (match) return match;
+  }
+  return models[0];
 }
 
 function SettingsPanel({ title, children }: { title: string; children: ReactNode }) {

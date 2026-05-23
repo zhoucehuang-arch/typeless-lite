@@ -1,10 +1,11 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::Utc;
 use parking_lot::Mutex;
 use std::sync::mpsc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 use crate::asr::sherpa::{SherpaAsr, SherpaRuntime};
@@ -43,6 +44,7 @@ pub struct Coordinator {
     phase: Mutex<Phase>,
     session: Mutex<Option<Session>>,
     hotkey_monitor: Mutex<Option<HotkeyMonitor>>,
+    capsule_seq: Arc<AtomicU64>,
 }
 
 impl Coordinator {
@@ -58,6 +60,7 @@ impl Coordinator {
             phase: Mutex::new(Phase::Idle),
             session: Mutex::new(None),
             hotkey_monitor: Mutex::new(None),
+            capsule_seq: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -268,6 +271,7 @@ impl Coordinator {
                 dictionary_hit_count: 0,
             };
             let _ = self.history.append(history, prefs.history_max_entries);
+            self.emit_changed("history:changed");
             *self.phase.lock() = Phase::Idle;
             self.emit_capsule(CapsuleState::Error, 0.0, elapsed, Some("没有识别到语音".into()), None);
             return Err("empty transcript".into());
@@ -292,6 +296,9 @@ impl Coordinator {
         final_text = apply_corrections(&final_text, &corrections);
         let status = TextInserter::insert(&final_text, prefs.restore_clipboard_after_paste);
         let hits = self.dictionary.record_hits(&final_text).unwrap_or(0);
+        if hits > 0 {
+            self.emit_changed("dictionary:changed");
+        }
         let error_code = if polish_failed {
             Some("polishFailed".into())
         } else if status == InsertStatus::Failed {
@@ -313,6 +320,7 @@ impl Coordinator {
         self.history
             .append(history, prefs.history_max_entries)
             .map_err(|err| err.to_string())?;
+        self.emit_changed("history:changed");
         *self.phase.lock() = Phase::Idle;
         let message = if polish_failed {
             Some("润色失败，已插入原文".into())
@@ -351,6 +359,56 @@ impl Coordinator {
             message,
             inserted_chars,
         };
-        let _ = self.app.emit("capsule", payload);
+        let seq = self.capsule_seq.fetch_add(1, Ordering::SeqCst) + 1;
+        let app = self.app.clone();
+        let show_capsule = self.prefs.get().show_capsule;
+        let visible = state != CapsuleState::Idle;
+        let app_for_main = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(window) = app_for_main.get_webview_window("capsule") {
+                let _ = crate::position_capsule_bottom_center(&window);
+                if show_capsule && visible {
+                    let _ = window.show();
+                } else {
+                    let _ = window.hide();
+                }
+            }
+        });
+        let _ = self.app.emit_to("capsule", "capsule", payload);
+        if matches!(
+            state,
+            CapsuleState::Done | CapsuleState::Cancelled | CapsuleState::Error
+        ) {
+            self.schedule_capsule_idle(seq);
+        }
+    }
+
+    fn emit_changed(&self, event: &str) {
+        let _ = self.app.emit(event, ());
+    }
+
+    fn schedule_capsule_idle(&self, seq: u64) {
+        let app = self.app.clone();
+        let capsule_seq = Arc::clone(&self.capsule_seq);
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1600));
+            if capsule_seq.load(Ordering::SeqCst) != seq {
+                return;
+            }
+            let payload = CapsulePayload {
+                state: CapsuleState::Idle,
+                level: 0.0,
+                elapsed_ms: 0,
+                message: None,
+                inserted_chars: None,
+            };
+            let app_for_main = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if let Some(window) = app_for_main.get_webview_window("capsule") {
+                    let _ = window.hide();
+                }
+            });
+            let _ = app.emit_to("capsule", "capsule", payload);
+        });
     }
 }

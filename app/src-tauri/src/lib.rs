@@ -4,6 +4,7 @@ mod coordinator;
 mod credentials;
 mod hotkey;
 mod insertion;
+mod openai_compat;
 mod persistence;
 mod polish;
 mod recorder;
@@ -12,7 +13,7 @@ mod types;
 use std::sync::Arc;
 
 use coordinator::Coordinator;
-use tauri::Manager;
+use tauri::{LogicalPosition, LogicalSize, Manager, RunEvent, WindowEvent};
 
 pub fn run() {
     env_logger::init();
@@ -34,6 +35,12 @@ pub fn run() {
                 log::warn!("[hotkey] install failed: {err}");
             }
             app.manage(coord);
+            if let Some(capsule) = app.get_webview_window("capsule") {
+                if let Err(err) = position_capsule_bottom_center(&capsule) {
+                    log::warn!("[capsule] position failed: {err}");
+                }
+                let _ = capsule.hide();
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -71,6 +78,40 @@ pub fn run() {
             commands::save_style,
             commands::reset_builtin_style,
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Typeless Lite");
+        .build(tauri::generate_context!())
+        .expect("failed to build Typeless Lite")
+        .run(|app, event| match event {
+            RunEvent::WindowEvent { label, event, .. } => {
+                if label == "main" {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                    }
+                }
+            }
+            _ => {}
+        });
+}
+
+pub(crate) fn position_capsule_bottom_center<R: tauri::Runtime>(
+    window: &tauri::WebviewWindow<R>,
+) -> tauri::Result<()> {
+    let monitor = match window.current_monitor()? {
+        Some(monitor) => monitor,
+        None => return Ok(()),
+    };
+    let width = 220.0;
+    let height = 84.0;
+    window.set_size(LogicalSize::new(width, height))?;
+
+    let scale = monitor.scale_factor();
+    let size = monitor.size();
+    let logical_width = size.width as f64 / scale;
+    let logical_height = size.height as f64 / scale;
+    let x = ((logical_width - width) / 2.0).max(0.0);
+    let y = (logical_height - 52.0 - 80.0).max(0.0);
+    window.set_position(LogicalPosition::new(x, y))?;
+    Ok(())
 }

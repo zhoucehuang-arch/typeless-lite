@@ -1,4 +1,5 @@
-import { Mic, Square, Settings, SlidersHorizontal } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { CheckCircle2, Mic, Settings, SlidersHorizontal, Sparkles, Square } from 'lucide-react';
 import type { CredentialsStatus, DictationSession, Preferences, StyleProfile } from '../lib/types';
 import { MODE_LABEL } from '../lib/types';
 import { formatDuration, formatTime } from '../lib/format';
@@ -40,8 +41,8 @@ export function Home({
     <div className="page home-page">
       <header className="page-header">
         <div>
-          <p>语音输入</p>
-          <h1>Typeless Lite</h1>
+          <p>Overview</p>
+          <h1>语音输入</h1>
         </div>
         <button className="ghost-button" onClick={onOpenSettings}>
           <Settings size={16} />
@@ -49,14 +50,31 @@ export function Home({
         </button>
       </header>
 
+      <section className="status-grid">
+        <ProviderCard
+          icon={<Mic size={18} />}
+          kind="ASR"
+          name="SenseVoice Small"
+          status="本地模型"
+          ready
+        />
+        <ProviderCard
+          icon={<Sparkles size={18} />}
+          kind="LLM"
+          name={prefs?.llmModel || '未选择模型'}
+          status={credentials?.llmConfigured ? '已配置' : '未配置'}
+          ready={Boolean(credentials?.llmConfigured)}
+        />
+      </section>
+
       <section className="dictation-panel">
-        <div>
+        <div className="dictation-copy">
           <span className="eyebrow">当前风格</span>
           <h2>{activeStyle?.name ?? '轻度润色'}</h2>
           <p>{formatHotkey(prefs?.hotkey ?? 'AltRight')} · {prefs?.hotkeyMode === 'toggle' ? '点击切换' : '按住说话'}</p>
         </div>
         <button className={recording ? 'record-button recording' : 'record-button'} disabled={busy && !recording} onClick={recording ? onStop : onStart}>
-          {recording ? <Square size={22} /> : <Mic size={24} />}
+          {recording ? <Square size={18} /> : <Mic size={18} />}
           <span>{recording ? '停止录音' : '开始录音'}</span>
         </button>
       </section>
@@ -68,7 +86,7 @@ export function Home({
             className={style.id === prefs?.activeStyleId ? 'style-chip active' : 'style-chip'}
             onClick={() => onActivateStyle(style.id)}
           >
-            <SlidersHorizontal size={14} />
+            <SlidersHorizontal size={13} />
             {style.name}
           </button>
         ))}
@@ -99,6 +117,34 @@ export function Home({
           {history.length === 0 && <div className="empty-state">还没有历史记录。</div>}
         </div>
       </section>
+    </div>
+  );
+}
+
+function ProviderCard({
+  icon,
+  kind,
+  name,
+  status,
+  ready,
+}: {
+  icon: ReactNode;
+  kind: string;
+  name: string;
+  status: string;
+  ready: boolean;
+}) {
+  return (
+    <div className="provider-card">
+      <div className="provider-icon">{icon}</div>
+      <div>
+        <div className="provider-kicker">
+          <span>{kind}</span>
+          {ready && <CheckCircle2 size={13} />}
+        </div>
+        <strong>{name}</strong>
+        <small>{status}</small>
+      </div>
     </div>
   );
 }

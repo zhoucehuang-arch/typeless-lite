@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, History as HistoryIcon, Home as HomeIcon, Settings, SlidersHorizontal } from 'lucide-react';
-import { Capsule } from './components/Capsule';
 import { SettingsModal } from './components/SettingsModal';
 import {
   addCorrectionRule,
@@ -14,6 +13,8 @@ import {
   listDictionary,
   listHistory,
   listStyles,
+  onDictionaryChanged,
+  onHistoryChanged,
   removeCorrectionRule,
   removeDictionaryEntry,
   resetBuiltinStyle,
@@ -90,6 +91,25 @@ export function App() {
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
+
+  useEffect(() => {
+    let unlistenHistory: (() => void) | undefined;
+    let unlistenDictionary: (() => void) | undefined;
+    void onHistoryChanged(() => {
+      refreshHistory();
+    }).then(fn => {
+      unlistenHistory = fn;
+    });
+    void onDictionaryChanged(() => {
+      refreshDictionary();
+    }).then(fn => {
+      unlistenDictionary = fn;
+    });
+    return () => {
+      unlistenHistory?.();
+      unlistenDictionary?.();
+    };
+  }, [refreshDictionary, refreshHistory]);
 
   const activePage = useMemo(() => {
     if (tab === 'history') {
@@ -201,43 +221,45 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">T</div>
-          <div>
-            <strong>Typeless Lite</strong>
+    <div className="window-shell">
+      <div className="app-shell">
+        <aside className="sidebar">
+          <div className="brand">
+            <div className="brand-mark">T</div>
+            <div>
+              <strong>Typeless Lite</strong>
+            </div>
+          </div>
+          <nav>
+            {NAV.map(item => {
+              const Icon = item.icon;
+              return (
+                <button key={item.id} className={tab === item.id ? 'nav-item active' : 'nav-item'} onClick={() => setTab(item.id)}>
+                  <Icon size={15} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="sidebar-footer">
             <span>{status?.platform ?? 'desktop'} · v{status?.version ?? '0.1.0'}</span>
+            <button className={settingsOpen ? 'nav-item active settings-entry' : 'nav-item settings-entry'} onClick={() => setSettingsOpen(true)}>
+              <Settings size={15} />
+              设置
+            </button>
           </div>
-        </div>
-        <nav>
-          {NAV.map(item => {
-            const Icon = item.icon;
-            return (
-              <button key={item.id} className={tab === item.id ? 'nav-item active' : 'nav-item'} onClick={() => setTab(item.id)}>
-                <Icon size={16} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
-        <button className={settingsOpen ? 'nav-item active settings-entry' : 'nav-item settings-entry'} onClick={() => setSettingsOpen(true)}>
-          <Settings size={16} />
-          设置
-        </button>
-      </aside>
+        </aside>
 
-      <main className="content">
-        {error && (
-          <div className="error-banner">
-            <span>{error}</span>
-            <button onClick={() => setError(null)}>关闭</button>
-          </div>
-        )}
-        {activePage}
-      </main>
-
-      <Capsule />
+        <main className="content">
+          {error && (
+            <div className="error-banner">
+              <span>{error}</span>
+              <button onClick={() => setError(null)}>关闭</button>
+            </div>
+          )}
+          {activePage}
+        </main>
+      </div>
 
       {settingsOpen && prefs && (
         <SettingsModal

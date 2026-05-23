@@ -25,23 +25,25 @@ export function Capsule() {
 
   const active = payload.state !== 'idle';
   return (
-    <div className={active ? `capsule ${payload.state}` : 'capsule'}>
-      <div className="capsule-icon">
-        {payload.state === 'recording' && <Mic size={15} />}
-        {(payload.state === 'transcribing' || payload.state === 'polishing') && <Loader2 size={15} className="spin" />}
-        {payload.state === 'done' && <Check size={15} />}
-        {(payload.state === 'error' || payload.state === 'cancelled') && <XCircle size={15} />}
-        {payload.state === 'idle' && <Mic size={15} />}
-      </div>
-      <div className="capsule-main">
-        <span>{labelFor(payload)}</span>
-        <small>{payload.message ?? formatDuration(payload.elapsedMs)}</small>
-      </div>
-      {payload.state === 'recording' && (
-        <div className="capsule-meter">
-          <span style={{ transform: `scaleY(${Math.max(0.1, payload.level)})` }} />
+    <div className="capsule-root">
+      <div className={active ? `capsule ${payload.state}` : 'capsule idle'}>
+        <div className="capsule-icon">
+          {payload.state === 'recording' && <Mic size={15} />}
+          {(payload.state === 'transcribing' || payload.state === 'polishing') && <Loader2 size={15} className="spin" />}
+          {payload.state === 'done' && <Check size={15} />}
+          {(payload.state === 'error' || payload.state === 'cancelled') && <XCircle size={15} />}
+          {payload.state === 'idle' && <Mic size={15} />}
         </div>
-      )}
+        <div className="capsule-main">
+          <span>{labelFor(payload)}</span>
+          <small>{payload.message ?? formatDuration(payload.elapsedMs)}</small>
+        </div>
+        {payload.state === 'recording' && (
+          <div className="capsule-meter">
+            <span style={{ transform: `scaleY(${Math.max(0.1, payload.level)})` }} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
