@@ -2,6 +2,7 @@ mod asr;
 mod commands;
 mod coordinator;
 mod credentials;
+mod hotkey;
 mod insertion;
 mod persistence;
 mod polish;

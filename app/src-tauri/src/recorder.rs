@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleFormat, StreamConfig};
+use cpal::{SampleFormat, StreamConfig, StreamError};
 use parking_lot::Mutex;
 use thiserror::Error;
 
@@ -135,7 +135,7 @@ fn build_input_stream(
     let channels = config.channels as usize;
     let state = Arc::new(Mutex::new(ResampleState::new(input_sample_rate)));
     let err_tx = runtime_tx.clone();
-    let err_fn = move |err| {
+    let err_fn = move |err: StreamError| {
         let _ = err_tx.send(RecorderError::EngineFailed(err.to_string()));
     };
 
