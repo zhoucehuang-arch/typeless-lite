@@ -36,6 +36,7 @@ jobs:
 
       - name: Cache Rust
         uses: swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           workspaces: app/src-tauri -> target
 

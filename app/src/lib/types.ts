@@ -104,6 +104,29 @@ export interface LlmValidationResult {
   message: string;
 }
 
+export interface LocalDataFileStatus {
+  name: string;
+  path: string;
+  exists: boolean;
+  bytes: number;
+  records: number | null;
+}
+
+export interface LocalDataStatus {
+  dataDir: string;
+  files: LocalDataFileStatus[];
+  llmApiKeyConfigured: boolean;
+  llmApiKeyFoundInJson: boolean;
+}
+
+export interface ClearLocalDataOptions {
+  settings?: boolean;
+  history?: boolean;
+  dictionary?: boolean;
+  styles?: boolean;
+  apiKey?: boolean;
+}
+
 export interface CapsulePayload {
   state: 'idle' | 'recording' | 'transcribing' | 'polishing' | 'done' | 'cancelled' | 'error';
   level: number;

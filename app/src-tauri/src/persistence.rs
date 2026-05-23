@@ -5,11 +5,13 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::types::{
-    builtin_styles, CorrectionRule, DictationSession, DictionaryEntry, Preferences, StyleProfile,
+    builtin_styles, CorrectionRule, DictationSession, DictionaryEntry, LocalDataFileStatus,
+    LocalDataStatus, Preferences, StyleProfile,
 };
 
 const HISTORY_FILE: &str = "history.json";
@@ -50,6 +52,100 @@ pub fn sherpa_models_root() -> Result<PathBuf> {
     let dir = data_dir()?.join("models").join("sherpa-onnx");
     fs::create_dir_all(&dir)?;
     Ok(dir)
+}
+
+pub fn local_data_status(llm_api_key_configured: bool) -> Result<LocalDataStatus> {
+    let dir = data_dir()?;
+    let files = data_file_names()
+        .iter()
+        .map(|name| file_status(&dir, name))
+        .collect::<Result<Vec<_>>>()?;
+    let llm_api_key_found_in_json = files_with_json_secrets(&dir)?.into_iter().any(|found| found);
+    Ok(LocalDataStatus {
+        data_dir: dir.display().to_string(),
+        files,
+        llm_api_key_configured,
+        llm_api_key_found_in_json,
+    })
+}
+
+pub fn reset_preferences_file() -> Result<Preferences> {
+    let prefs = Preferences::default();
+    write_json(&data_dir()?.join(PREFERENCES_FILE), &prefs)?;
+    Ok(prefs)
+}
+
+pub fn reset_history_file() -> Result<()> {
+    write_json(&data_dir()?.join(HISTORY_FILE), &Vec::<DictationSession>::new())
+}
+
+pub fn reset_dictionary_files() -> Result<()> {
+    write_json(&data_dir()?.join(DICTIONARY_FILE), &Vec::<DictionaryEntry>::new())?;
+    write_json(&data_dir()?.join(CORRECTIONS_FILE), &Vec::<CorrectionRule>::new())
+}
+
+pub fn reset_styles_file() -> Result<()> {
+    write_json(&data_dir()?.join(STYLES_FILE), &builtin_styles())
+}
+
+fn data_file_names() -> [&'static str; 5] {
+    [
+        PREFERENCES_FILE,
+        HISTORY_FILE,
+        DICTIONARY_FILE,
+        CORRECTIONS_FILE,
+        STYLES_FILE,
+    ]
+}
+
+fn file_status(dir: &Path, name: &str) -> Result<LocalDataFileStatus> {
+    let path = dir.join(name);
+    let exists = path.exists();
+    let bytes = fs::metadata(&path).map(|metadata| metadata.len()).unwrap_or(0);
+    let records = if exists {
+        json_record_count(&path).ok()
+    } else {
+        None
+    };
+    Ok(LocalDataFileStatus {
+        name: name.to_string(),
+        path: path.display().to_string(),
+        exists,
+        bytes,
+        records,
+    })
+}
+
+fn json_record_count(path: &Path) -> Result<u64> {
+    let bytes = fs::read(path)?;
+    if bytes.is_empty() {
+        return Ok(0);
+    }
+    let value: Value = serde_json::from_slice(&bytes)?;
+    Ok(match value {
+        Value::Array(items) => items.len() as u64,
+        Value::Object(items) => items.len() as u64,
+        Value::Null => 0,
+        _ => 1,
+    })
+}
+
+fn files_with_json_secrets(dir: &Path) -> Result<Vec<bool>> {
+    data_file_names()
+        .iter()
+        .map(|name| {
+            let path = dir.join(name);
+            if !path.exists() {
+                return Ok(false);
+            }
+            let text = fs::read_to_string(path)?;
+            let lower = text.to_ascii_lowercase();
+            Ok(lower.contains("api_key")
+                || lower.contains("apikey")
+                || lower.contains("authorization")
+                || lower.contains("bearer "))
+        })
+        .collect()
 }
 
 fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
@@ -367,5 +463,120 @@ impl StyleStore {
             write_json(&self.path, &styles)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DictationSession, InsertStatus, PolishMode};
+
+    fn temp_path(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "typeless-lite-test-{name}-{}",
+            Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn atomic_json_roundtrip_preserves_preferences() {
+        let dir = temp_path("preferences");
+        let path = dir.join("preferences.json");
+        let prefs = Preferences {
+            hotkey: "Ctrl+Alt+Space".into(),
+            ..Preferences::default()
+        };
+
+        write_json(&path, &prefs).unwrap();
+        let restored: Preferences = read_or_default(&path).unwrap();
+
+        assert_eq!(restored.hotkey, "Ctrl+Alt+Space");
+        assert!(!fs::read_to_string(path).unwrap().contains("api_key"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn history_append_trims_to_configured_cap() {
+        let dir = temp_path("history");
+        let store = HistoryStore {
+            path: dir.join("history.json"),
+            lock: Mutex::new(()),
+        };
+
+        for index in 0..8 {
+            store.append(history_item(index), 5).unwrap();
+        }
+
+        let items = store.list().unwrap();
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[0].raw_transcript, "raw 7");
+        assert_eq!(items[4].raw_transcript, "raw 3");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn dictionary_and_corrections_can_reset() {
+        let dir = temp_path("dictionary");
+        let entries_path = dir.join("dictionary.json");
+        let rules_path = dir.join("correction-rules.json");
+        write_json(
+            &entries_path,
+            &vec![DictionaryEntry {
+                id: "entry".into(),
+                phrase: "Typeless".into(),
+                note: None,
+                enabled: true,
+                hits: 0,
+                created_at: "now".into(),
+            }],
+        )
+        .unwrap();
+        write_json(
+            &rules_path,
+            &vec![CorrectionRule {
+                id: "rule".into(),
+                pattern: "Open Less".into(),
+                replacement: "OpenLess".into(),
+                enabled: true,
+                created_at: "now".into(),
+            }],
+        )
+        .unwrap();
+
+        write_json(&entries_path, &Vec::<DictionaryEntry>::new()).unwrap();
+        write_json(&rules_path, &Vec::<CorrectionRule>::new()).unwrap();
+
+        let entries: Vec<DictionaryEntry> = read_or_default(&entries_path).unwrap();
+        let rules: Vec<CorrectionRule> = read_or_default(&rules_path).unwrap();
+        assert!(entries.is_empty());
+        assert!(rules.is_empty());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn json_secret_scan_detects_api_key_like_fields() {
+        let dir = temp_path("secrets");
+        write_json(&dir.join("preferences.json"), &Preferences::default()).unwrap();
+        fs::write(dir.join("history.json"), r#"[{"api_key":"leaked"}]"#).unwrap();
+
+        let findings = files_with_json_secrets(&dir).unwrap();
+        assert!(findings.into_iter().any(|found| found));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn history_item(index: usize) -> DictationSession {
+        DictationSession {
+            id: index.to_string(),
+            created_at: "2026-05-23T00:00:00Z".into(),
+            raw_transcript: format!("raw {index}"),
+            final_text: format!("final {index}"),
+            mode: PolishMode::Light,
+            insert_status: InsertStatus::Inserted,
+            error_code: None,
+            duration_ms: 100,
+            dictionary_hit_count: 0,
+        }
     }
 }

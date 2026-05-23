@@ -117,6 +117,12 @@ impl Coordinator {
         }
     }
 
+    pub fn reset_preferences(self: &Arc<Self>) -> Result<(), String> {
+        let prefs = crate::persistence::reset_preferences_file().map_err(|err| err.to_string())?;
+        self.prefs.set(prefs).map_err(|err| err.to_string())?;
+        self.refresh_hotkey()
+    }
+
     async fn handle_hotkey_event(self: Arc<Self>, event: HotkeyEvent) {
         let prefs = self.prefs.get();
         match (prefs.hotkey_mode, event) {

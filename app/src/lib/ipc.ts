@@ -3,10 +3,12 @@ import { listen } from '@tauri-apps/api/event';
 import type {
   AppStatus,
   CapsulePayload,
+  ClearLocalDataOptions,
   CorrectionRule,
   CredentialsStatus,
   DictationSession,
   DictionaryEntry,
+  LocalDataStatus,
   MicrophoneDevice,
   Preferences,
   LlmValidationResult,
@@ -36,6 +38,14 @@ export function getCredentials() {
 
 export function setLlmApiKey(apiKey: string) {
   return invoke<void>('set_llm_api_key', { apiKey });
+}
+
+export function localDataStatus() {
+  return invoke<LocalDataStatus>('local_data_status');
+}
+
+export function clearLocalData(options: ClearLocalDataOptions) {
+  return invoke<LocalDataStatus>('clear_local_data', { options });
 }
 
 export function validateHotkey(binding: string) {

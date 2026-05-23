@@ -60,7 +60,7 @@ pub enum InsertStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
     pub hotkey: String,
     pub hotkey_mode: HotkeyMode,
@@ -261,4 +261,38 @@ pub struct SherpaDefaultModelStatus {
 pub struct AppStatus {
     pub version: String,
     pub platform: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalDataFileStatus {
+    pub name: String,
+    pub path: String,
+    pub exists: bool,
+    pub bytes: u64,
+    pub records: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalDataStatus {
+    pub data_dir: String,
+    pub files: Vec<LocalDataFileStatus>,
+    pub llm_api_key_configured: bool,
+    pub llm_api_key_found_in_json: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearLocalDataOptions {
+    #[serde(default)]
+    pub settings: bool,
+    #[serde(default)]
+    pub history: bool,
+    #[serde(default)]
+    pub dictionary: bool,
+    #[serde(default)]
+    pub styles: bool,
+    #[serde(default)]
+    pub api_key: bool,
 }

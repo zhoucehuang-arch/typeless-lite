@@ -211,6 +211,10 @@ button:disabled {
   color: var(--red);
 }
 
+.tool-button.danger {
+  color: var(--red);
+}
+
 .primary {
   background: var(--text);
   border-color: var(--text);
@@ -742,6 +746,11 @@ textarea {
   background: var(--green-soft);
 }
 
+.model-status.danger {
+  border-color: rgba(220, 38, 38, 0.18);
+  background: var(--red-soft);
+}
+
 .model-status strong, .model-status span {
   display: block;
 }
@@ -764,6 +773,39 @@ textarea {
 
 .model-status.ready svg {
   color: var(--green);
+}
+
+.model-status.danger svg {
+  color: var(--red);
+}
+
+.data-file-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.data-file-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 8px 10px;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.data-file-row strong {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-file-row span {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .progress-line {

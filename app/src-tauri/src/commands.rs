@@ -9,10 +9,12 @@ use crate::asr::sherpa;
 use crate::coordinator::Coordinator;
 use crate::credentials::CredentialsVault;
 use crate::hotkey;
+use crate::persistence;
 use crate::recorder;
 use crate::types::{
-    AppStatus, CorrectionRule, CredentialsStatus, DictationSession, DictionaryEntry,
-    MicrophoneDevice, Preferences, SherpaDefaultModelStatus, SherpaModelInfo, StyleProfile,
+    AppStatus, ClearLocalDataOptions, CorrectionRule, CredentialsStatus, DictationSession,
+    DictionaryEntry, LocalDataStatus, MicrophoneDevice, Preferences, SherpaDefaultModelStatus,
+    SherpaModelInfo, StyleProfile,
 };
 
 type Coord<'a> = State<'a, Arc<Coordinator>>;
@@ -53,6 +55,36 @@ pub fn get_credentials() -> CredentialsStatus {
 #[tauri::command]
 pub fn set_llm_api_key(api_key: String) -> Result<(), String> {
     CredentialsVault::set_llm_api_key(&api_key).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn local_data_status() -> Result<LocalDataStatus, String> {
+    persistence::local_data_status(CredentialsVault::llm_configured())
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn clear_local_data(
+    coord: Coord<'_>,
+    options: ClearLocalDataOptions,
+) -> Result<LocalDataStatus, String> {
+    if options.settings {
+        Arc::clone(coord.inner()).reset_preferences()?;
+    }
+    if options.history {
+        persistence::reset_history_file().map_err(|err| err.to_string())?;
+    }
+    if options.dictionary {
+        persistence::reset_dictionary_files().map_err(|err| err.to_string())?;
+    }
+    if options.styles {
+        persistence::reset_styles_file().map_err(|err| err.to_string())?;
+    }
+    if options.api_key {
+        CredentialsVault::set_llm_api_key("").map_err(|err| err.to_string())?;
+    }
+    persistence::local_data_status(CredentialsVault::llm_configured())
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]

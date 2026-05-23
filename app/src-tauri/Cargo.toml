@@ -1,6 +1,6 @@
 [package]
 name = "typeless-lite"
-version = "0.1.1"
+version = "0.1.2"
 description = "Typeless Lite - lightweight local-first voice input"
 authors = ["Typeless Lite"]
 edition = "2021"

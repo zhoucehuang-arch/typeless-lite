@@ -42,6 +42,8 @@ pub fn run() {
             commands::set_settings,
             commands::get_credentials,
             commands::set_llm_api_key,
+            commands::local_data_status,
+            commands::clear_local_data,
             commands::validate_hotkey,
             commands::set_shortcut_recording_active,
             commands::list_llm_models,

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Cloud, Download, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { CheckCircle2, Database, Download, Eraser, FolderOpen, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import {
+  clearLocalData,
   getCredentials,
   listLlmModels,
   listMicrophones,
+  localDataStatus,
   onSherpaDownloadProgress,
   setLlmApiKey,
   setSettings,
@@ -13,6 +15,7 @@ import {
 } from '../lib/ipc';
 import type {
   CredentialsStatus,
+  LocalDataStatus,
   MicrophoneDevice,
   Preferences,
   SherpaDefaultModelStatus,
@@ -34,6 +37,7 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
   const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([]);
   const [asrStatus, setAsrStatus] = useState<SherpaDefaultModelStatus | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<SherpaDownloadProgress | null>(null);
+  const [dataStatus, setDataStatus] = useState<LocalDataStatus | null>(null);
   const [llmModels, setLlmModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [checkingModel, setCheckingModel] = useState(false);
@@ -48,6 +52,7 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
     void getCredentials().then(setCredentials).catch(() => setCredentials(null));
     void listMicrophones().then(setMicrophones).catch(() => setMicrophones([]));
     void sherpaDefaultModelStatus().then(setAsrStatus).catch(error => setStatus(String(error)));
+    void localDataStatus().then(setDataStatus).catch(() => setDataStatus(null));
     const unlisten = onSherpaDownloadProgress(payload => {
       setDownloadProgress(payload);
       if (payload.done) void sherpaDefaultModelStatus().then(setAsrStatus);
@@ -81,6 +86,7 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
       onSaved(normalized);
       setStatus('已保存');
       void getCredentials().then(setCredentials);
+      void localDataStatus().then(setDataStatus);
     } catch (err) {
       setStatus(String(err));
     } finally {
@@ -124,6 +130,19 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
       setStatus(String(err));
     } finally {
       setCheckingModel(false);
+    }
+  };
+
+  const clearData = async (options: Parameters<typeof clearLocalData>[0], message: string) => {
+    if (!window.confirm(message)) return;
+    setStatus('');
+    try {
+      const next = await clearLocalData(options);
+      setDataStatus(next);
+      void getCredentials().then(setCredentials);
+      setStatus('本地数据已更新');
+    } catch (err) {
+      setStatus(String(err));
     }
   };
 
@@ -261,17 +280,55 @@ export function SettingsModal({ prefs, onClose, onSaved }: SettingsModalProps) {
             </label>
           </section>
 
-          <section className="settings-section">
+          <section className="settings-section wide">
             <div className="settings-section-title">
-              <h3>运行</h3>
-              <span>轻量模式</span>
+              <h3>本地数据</h3>
+              <span>{dataStatus?.llmApiKeyConfigured ? 'API Key 在系统凭据库' : 'API Key 未配置'}</span>
             </div>
-            <div className="model-status ready">
+            <div className={dataStatus?.llmApiKeyFoundInJson ? 'model-status danger' : 'model-status ready'}>
               <div>
-                <strong>本地 ASR + API LLM</strong>
-                <span>去掉温度、复杂模型选择和额外功能。</span>
+                <strong>{dataStatus?.llmApiKeyFoundInJson ? '发现疑似明文凭据' : 'JSON 文件未发现 API key'}</strong>
+                <span>{dataStatus?.dataDir ?? '数据目录未就绪'}</span>
               </div>
-              <Cloud size={18} />
+              {dataStatus?.llmApiKeyFoundInJson ? <ShieldCheck size={18} /> : <Database size={18} />}
+            </div>
+            <div className="data-file-grid">
+              {dataStatus?.files.map(file => (
+                <div key={file.name} className="data-file-row">
+                  <strong>{file.name}</strong>
+                  <span>{file.exists ? `${formatBytes(file.bytes)}${file.records === null ? '' : ` · ${file.records} 条`}` : '未创建'}</span>
+                </div>
+              ))}
+            </div>
+            <div className="tool-row">
+              <button type="button" className="tool-button" onClick={() => void localDataStatus().then(setDataStatus)}>
+                <RefreshCw size={15} />
+                刷新状态
+              </button>
+              <button type="button" className="tool-button" onClick={() => navigator.clipboard.writeText(dataStatus?.dataDir ?? '')}>
+                <FolderOpen size={15} />
+                复制数据目录
+              </button>
+              <button type="button" className="tool-button danger" onClick={() => void clearData({ history: true }, '确定清空历史记录？')}>
+                <Eraser size={15} />
+                清空历史
+              </button>
+              <button type="button" className="tool-button danger" onClick={() => void clearData({ dictionary: true }, '确定清空词典和纠错规则？')}>
+                <Eraser size={15} />
+                清空词典
+              </button>
+              <button type="button" className="tool-button danger" onClick={() => void clearData({ styles: true }, '确定重置所有润色风格？')}>
+                <Eraser size={15} />
+                重置风格
+              </button>
+              <button type="button" className="tool-button danger" onClick={() => void clearData({ apiKey: true }, '确定删除系统凭据库中的 LLM API Key？')}>
+                <Eraser size={15} />
+                删除 API Key
+              </button>
+              <button type="button" className="tool-button danger" onClick={() => void clearData({ settings: true }, '确定重置偏好设置？快捷键等配置会恢复默认值。')}>
+                <Eraser size={15} />
+                重置设置
+              </button>
             </div>
           </section>
         </div>
