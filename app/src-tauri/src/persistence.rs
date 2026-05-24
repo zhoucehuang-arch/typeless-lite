@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::types::{
     builtin_styles, CorrectionRule, DictationSession, DictionaryEntry, LocalDataFileStatus,
-    LocalDataStatus, Preferences, StyleProfile,
+    LocalDataStatus, Preferences, StyleProfile, DEFAULT_LLM_MODEL,
 };
 
 const HISTORY_FILE: &str = "history.json";
@@ -192,7 +192,15 @@ pub struct PreferencesStore {
 impl PreferencesStore {
     pub fn new() -> Result<Self> {
         let path = data_dir()?.join(PREFERENCES_FILE);
-        let current = read_or_default(&path)?;
+        let mut current: Preferences = read_or_default(&path)?;
+        let mut changed = false;
+        if current.llm_model.trim().eq_ignore_ascii_case("gpt-4o-mini") {
+            current.llm_model = DEFAULT_LLM_MODEL.into();
+            changed = true;
+        }
+        if changed {
+            write_json(&path, &current)?;
+        }
         Ok(Self {
             path,
             current: Mutex::new(current),

@@ -90,6 +90,8 @@ pub enum OutputLanguage {
     En,
 }
 
+pub const DEFAULT_LLM_MODEL: &str = "gpt-5.2-chat-latest";
+
 fn default_restore_clipboard_after_paste() -> bool {
     true
 }
@@ -113,7 +115,7 @@ impl Default for Preferences {
             sherpa_language_hint: Some("zh".into()),
             sherpa_keep_loaded_secs: 300,
             llm_base_url: "https://api.openai.com/v1".into(),
-            llm_model: "gpt-4o-mini".into(),
+            llm_model: DEFAULT_LLM_MODEL.into(),
             restore_clipboard_after_paste: true,
             history_max_entries: 200,
         }

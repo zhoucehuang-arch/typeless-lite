@@ -3,7 +3,7 @@ use serde_json::json;
 
 use crate::credentials::CredentialsVault;
 use crate::openai_compat;
-use crate::types::{OutputLanguage, PolishMode, Preferences, StyleProfile};
+use crate::types::{OutputLanguage, PolishMode, Preferences, StyleProfile, DEFAULT_LLM_MODEL};
 
 pub async fn polish_text(
     raw_text: &str,
@@ -24,9 +24,105 @@ pub async fn polish_text(
             { "role": "user", "content": user }
         ]
     });
-    openai_compat::post_chat_completion(&Client::new(), &prefs.llm_base_url, &api_key, &body)
-        .await
-        .map(|content| clean_polish_output(&content))
+    let client = Client::new();
+    match openai_compat::post_chat_completion(&client, &prefs.llm_base_url, &api_key, &body).await {
+        Ok(content) => return Ok(clean_polish_output(&content)),
+        Err(primary_err) => {
+            let fallback_models = fallback_models(&prefs.llm_model);
+            if fallback_models.is_empty() {
+                return Err(primary_err);
+            }
+            log::warn!(
+                "[polish] model '{}' failed, trying fallbacks: {primary_err}",
+                prefs.llm_model
+            );
+            let mut last_err = primary_err;
+            for model in fallback_models {
+                let fallback_body = json!({
+                    "model": model,
+                    "messages": [
+                        { "role": "system", "content": system },
+                        { "role": "user", "content": user }
+                    ]
+                });
+                match openai_compat::post_chat_completion(
+                    &client,
+                    &prefs.llm_base_url,
+                    &api_key,
+                    &fallback_body,
+                )
+                .await
+                {
+                    Ok(content) => {
+                        log::info!("[polish] fallback model '{model}' succeeded");
+                        return Ok(clean_polish_output(&content));
+                    }
+                    Err(err) => {
+                        log::warn!("[polish] fallback model '{model}' failed: {err}");
+                        last_err = err;
+                    }
+                }
+            }
+            log::warn!("[polish] all remote models failed, using local fallback: {last_err}");
+            Ok(local_fallback_polish(raw_text))
+        }
+    }
+}
+
+fn fallback_models(current_model: &str) -> Vec<&'static str> {
+    let current = current_model.trim().to_ascii_lowercase();
+    [
+        DEFAULT_LLM_MODEL,
+        "gpt-5.2",
+        "gpt-5.4",
+        "gpt-5.5",
+        "gpt-5.4-mini",
+    ]
+    .into_iter()
+    .filter(|model| model.to_ascii_lowercase() != current)
+    .collect()
+}
+
+fn local_fallback_polish(raw_text: &str) -> String {
+    let mut text = raw_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string();
+    for filler in ["嗯", "呃", "额", "那个", "就是", "然后"] {
+        loop {
+            let next = text.trim_start().strip_prefix(filler).map(str::trim_start);
+            if let Some(value) = next {
+                text = value.to_string();
+            } else {
+                break;
+            }
+        }
+    }
+    for (from, to) in [
+        ("脱肯", "Token"),
+        ("拓肯", "Token"),
+        ("西克瑞特 Key", "Secret Key"),
+        ("西克瑞特 key", "Secret Key"),
+        ("埃克塞斯 Token", "Access Token"),
+        ("埃克塞斯 token", "Access Token"),
+        ("阿屁艾", "API"),
+        ("跟目录", "根目录"),
+        ("代码厂", "代码仓"),
+        ("编一编", "编译"),
+    ] {
+        text = text.replace(from, to);
+    }
+    if !text.is_empty()
+        && !matches!(
+            text.chars().last(),
+            Some('。' | '！' | '？' | '.' | '!' | '?' | '」' | '”' | ')' | '）')
+        )
+    {
+        text.push('。');
+    }
+    text
 }
 
 fn compose_system_prompt(style: &StyleProfile, output_language: OutputLanguage, hotwords: &[String]) -> String {

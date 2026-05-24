@@ -43,17 +43,32 @@ fn endpoint_candidates(base_url: &str, endpoint: &str) -> Vec<String> {
     }
 
     if candidates.is_empty() {
-        push_unique(&mut candidates, format!("{base}/{endpoint}"));
-    }
-
-    if !base.ends_with("/v1")
-        && !base.ends_with("/models")
-        && !base.ends_with("/chat/completions")
-    {
-        push_unique(&mut candidates, format!("{base}/v1/{endpoint}"));
+        if root_like_base(&base) && !base.ends_with("/v1") {
+            push_unique(&mut candidates, format!("{base}/v1/{endpoint}"));
+            push_unique(&mut candidates, format!("{base}/{endpoint}"));
+        } else {
+            push_unique(&mut candidates, format!("{base}/{endpoint}"));
+            if !base.ends_with("/v1")
+                && !base.ends_with("/models")
+                && !base.ends_with("/chat/completions")
+            {
+                push_unique(&mut candidates, format!("{base}/v1/{endpoint}"));
+            }
+        }
     }
 
     candidates
+}
+
+fn root_like_base(base: &str) -> bool {
+    let without_scheme = base
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(base);
+    without_scheme
+        .find('/')
+        .map(|index| without_scheme[index + 1..].trim_matches('/').is_empty())
+        .unwrap_or(true)
 }
 
 fn push_unique(values: &mut Vec<String>, value: String) {
@@ -233,15 +248,15 @@ mod tests {
         assert_eq!(
             models_url_candidates("https://ai.input.im"),
             vec![
-                "https://ai.input.im/models".to_string(),
-                "https://ai.input.im/v1/models".to_string()
+                "https://ai.input.im/v1/models".to_string(),
+                "https://ai.input.im/models".to_string()
             ]
         );
         assert_eq!(
             chat_url_candidates("https://ai.input.im"),
             vec![
-                "https://ai.input.im/chat/completions".to_string(),
-                "https://ai.input.im/v1/chat/completions".to_string()
+                "https://ai.input.im/v1/chat/completions".to_string(),
+                "https://ai.input.im/chat/completions".to_string()
             ]
         );
     }

@@ -127,10 +127,9 @@ pub async fn validate_llm_model(
     let body = json!({
         "model": model,
         "messages": [
-            { "role": "system", "content": "You validate whether a chat model is available. Reply with ok." },
-            { "role": "user", "content": "ok" }
-        ],
-        "max_tokens": 2
+            { "role": "system", "content": "你是语音输入润色助手。只整理语音转写，不回答问题，不扩写。只输出正文。" },
+            { "role": "user", "content": "嗯我们目前看了一下没什么大问题就是缓存策略可能要改一下哦对了脱肯也得重新申请一下" }
+        ]
     });
     match openai_compat::post_chat_completion(&Client::new(), &base_url, &key, &body).await {
         Ok(_) => Ok(LlmValidationResult {
