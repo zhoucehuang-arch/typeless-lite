@@ -13,7 +13,11 @@ mod types;
 use std::sync::Arc;
 
 use coordinator::Coordinator;
-use tauri::{LogicalPosition, LogicalSize, Manager, RunEvent, WindowEvent};
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder},
+    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
+    LogicalPosition, LogicalSize, Manager, RunEvent, WindowEvent,
+};
 
 pub fn run() {
     env_logger::init();
@@ -34,7 +38,9 @@ pub fn run() {
             if let Err(err) = coord.install_hotkey() {
                 log::warn!("[hotkey] install failed: {err}");
             }
+            coord.warm_up_asr();
             app.manage(coord);
+            setup_tray(app)?;
             if let Some(capsule) = app.get_webview_window("capsule") {
                 if let Err(err) = position_capsule_bottom_center(&capsule) {
                     log::warn!("[capsule] position failed: {err}");
@@ -95,6 +101,43 @@ pub fn run() {
         });
 }
 
+fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let show_i = MenuItemBuilder::with_id("show", "显示 Typeless Lite").build(app)?;
+    let quit_i = MenuItemBuilder::with_id("quit", "退出 Typeless Lite").build(app)?;
+    let menu = MenuBuilder::new(app).items(&[&show_i, &quit_i]).build()?;
+    let mut builder = TrayIconBuilder::with_id("main-tray")
+        .tooltip("Typeless Lite")
+        .icon_as_template(false)
+        .menu(&menu)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.show_menu_on_left_click(false).build(app)?;
+    Ok(())
+}
+
+fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 pub(crate) fn position_capsule_bottom_center<R: tauri::Runtime>(
     window: &tauri::WebviewWindow<R>,
 ) -> tauri::Result<()> {
@@ -102,7 +145,7 @@ pub(crate) fn position_capsule_bottom_center<R: tauri::Runtime>(
         Some(monitor) => monitor,
         None => return Ok(()),
     };
-    let width = 220.0;
+    let width = 214.0;
     let height = 84.0;
     window.set_size(LogicalSize::new(width, height))?;
 

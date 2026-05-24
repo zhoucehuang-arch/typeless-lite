@@ -241,6 +241,20 @@ impl SherpaRuntime {
         Self::default()
     }
 
+    pub async fn preload(&self, alias: &str) -> Result<()> {
+        ensure_known(alias)?;
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(())
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let _ = self.ensure_loaded(alias).await?;
+            Ok(())
+        }
+    }
+
     pub async fn transcribe_pcm(
         &self,
         alias: &str,

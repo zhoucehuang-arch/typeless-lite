@@ -84,6 +84,18 @@ impl Coordinator {
         &self.styles
     }
 
+    pub fn warm_up_asr(self: &Arc<Self>) {
+        let prefs = self.prefs.get();
+        let runtime = Arc::clone(&self.sherpa_runtime);
+        tauri::async_runtime::spawn(async move {
+            if let Err(err) = runtime.preload(&prefs.sherpa_model).await {
+                log::warn!("[asr] warm-up skipped: {err}");
+            } else {
+                log::info!("[asr] warm-up completed for {}", prefs.sherpa_model);
+            }
+        });
+    }
+
     pub fn install_hotkey(self: &Arc<Self>) -> Result<(), String> {
         let prefs = self.prefs.get();
         let (tx, rx) = mpsc::channel();
@@ -223,6 +235,7 @@ impl Coordinator {
         if let Some(recorder) = session.recorder.take() {
             recorder.stop();
         }
+        let transcribe_started = Instant::now();
         let raw = match session.asr.transcribe().await {
             Ok(raw) => raw,
             Err(err) => {
@@ -237,6 +250,10 @@ impl Coordinator {
                 return Err(err.to_string());
             }
         };
+        log::info!(
+            "[dictation] transcribe done in {}ms",
+            transcribe_started.elapsed().as_millis()
+        );
         self.finish_session(session.id, raw, elapsed).await
     }
 
@@ -286,6 +303,7 @@ impl Coordinator {
             .map_err(|err| err.to_string())?;
         let hotwords = self.dictionary.enabled_phrases().unwrap_or_default();
         self.emit_capsule(CapsuleState::Polishing, 0.0, elapsed, None, None);
+        let polish_started = Instant::now();
         let (mut final_text, polish_failed) = match polish_text(&raw.text, &style, &prefs, &hotwords).await {
             Ok(text) => (text, false),
             Err(err) => {
@@ -293,6 +311,10 @@ impl Coordinator {
                 (raw.text.clone(), true)
             }
         };
+        log::info!(
+            "[dictation] polish done in {}ms failed={polish_failed}",
+            polish_started.elapsed().as_millis()
+        );
         final_text = apply_corrections(&final_text, &corrections);
         let status = TextInserter::insert(&final_text, prefs.restore_clipboard_after_paste);
         let hits = self.dictionary.record_hits(&final_text).unwrap_or(0);

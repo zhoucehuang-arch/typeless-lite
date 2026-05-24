@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { BookOpen, History as HistoryIcon, Home as HomeIcon, Settings, SlidersHorizontal } from 'lucide-react';
 import { SettingsModal } from './components/SettingsModal';
 import {
@@ -61,6 +61,7 @@ export function App() {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeNavIndex = Math.max(0, NAV.findIndex(item => item.id === tab));
 
   const refreshHistory = useCallback(() => {
     void listHistory().then(setHistory).catch(err => setError(String(err)));
@@ -225,26 +226,28 @@ export function App() {
       <div className="app-shell">
         <aside className="sidebar">
           <div className="brand">
-            <div className="brand-mark">T</div>
+            <img className="brand-mark" src="/AppIcon.png" alt="" />
             <div>
               <strong>Typeless Lite</strong>
+              <span>轻量语音输入</span>
             </div>
           </div>
-          <nav>
+          <nav className="sidebar-nav" style={{ '--nav-pill-top': `${activeNavIndex * 40}px` } as CSSProperties}>
+            {!settingsOpen && <div className="nav-pill" aria-hidden />}
             {NAV.map(item => {
               const Icon = item.icon;
               return (
                 <button key={item.id} className={tab === item.id ? 'nav-item active' : 'nav-item'} onClick={() => setTab(item.id)}>
-                  <Icon size={15} />
+                  <Icon size={16} />
                   {item.label}
                 </button>
               );
             })}
           </nav>
           <div className="sidebar-footer">
-            <span>{status?.platform ?? 'desktop'} · v{status?.version ?? '0.1.0'}</span>
+            <span className="version-chip">{status?.platform ?? 'desktop'} · v{status?.version ?? '0.1.0'}</span>
             <button className={settingsOpen ? 'nav-item active settings-entry' : 'nav-item settings-entry'} onClick={() => setSettingsOpen(true)}>
-              <Settings size={15} />
+              <Settings size={16} />
               设置
             </button>
           </div>

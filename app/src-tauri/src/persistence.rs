@@ -454,7 +454,18 @@ impl StyleStore {
         let mut styles: Vec<StyleProfile> = read_or_default(&self.path)?;
         let mut changed = false;
         for builtin in builtin_styles() {
-            if !styles.iter().any(|style| style.id == builtin.id) {
+            if let Some(existing) = styles
+                .iter_mut()
+                .find(|style| style.id == builtin.id && style.builtin)
+            {
+                if existing.prompt != builtin.prompt
+                    || existing.name != builtin.name
+                    || existing.mode != builtin.mode
+                {
+                    *existing = builtin;
+                    changed = true;
+                }
+            } else if !styles.iter().any(|style| style.id == builtin.id) {
                 styles.push(builtin);
                 changed = true;
             }
